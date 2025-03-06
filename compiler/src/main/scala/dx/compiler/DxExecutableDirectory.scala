@@ -2,6 +2,7 @@ package dx.compiler
 
 import java.time.{LocalDateTime, ZoneId}
 import java.time.format.DateTimeFormatter
+import java.nio.file.Path
 import dx.api.{
   DxApi,
   DxApplet,
@@ -15,9 +16,11 @@ import dx.api.{
   DxWorkflowDescribe,
   Field
 }
+import dx.core.CliUtils.OptionParseException
 import dx.core.Constants
 import dx.core.ir.Bundle
 import dx.util.{JsUtils, Logger}
+import scala.jdk.CollectionConverters._
 
 trait DxExecutableInfo {
   val dataObj: DxDataObject
@@ -38,6 +41,7 @@ object DxExecutableDirectory {
   * @param project the project to search
   * @param folder the folder to search
   * @param projectWideReuse whether to allow project-wide reuse
+  * @param executableReuseFolder if defined search in this folder for reuse of application
   * @param dxApi the Dx API
   * @param logger the logger
   */
@@ -45,6 +49,7 @@ case class DxExecutableDirectory(bundle: Bundle,
                                  project: DxProject,
                                  folder: String,
                                  projectWideReuse: Boolean = false,
+                                 executableReuseFolder: Option[Path] = None,
                                  dxApi: DxApi = DxApi.get,
                                  logger: Logger = Logger.get) {
 
@@ -136,23 +141,53 @@ case class DxExecutableDirectory(bundle: Bundle,
   // across the entire project, at the cost of a potentially expensive API call. It is not clear
   // this is useful to the majority of users, so it is gated by the [projectWideReuse] flag.
   private lazy val projectWideExecDir: Map[String, Vector[DxExecutableInfo]] = {
-    if (projectWideReuse) {
-      // Scan the entire project for dx:workflows and dx:applets that we already created, and may be
-      // reused, instead of recompiling. This could be expensive. We limit it by filtering on the
-      // CHECKSUM property, which is attached only to generated applets and workflows. The maximal
-      // number of replies is (by default) 1000 so we may miss matches when we search. The cost
-      // would be creating a dx:executable again, which is acceptable.
-      logger.trace(s"Querying for executables in project ${project}")
-      val executables = findExecutables(recurse = true)
-        .flatMap {
-          case (obj, desc) =>
-            getChecksum(desc).map(checksum => DxExecutableWithDesc(obj, desc, Some(checksum)))
+    (projectWideReuse, executableReuseFolder) match {
+      case (true, _) => {
+        // Scan the entire project for dx:workflows and dx:applets that we already created, and may be
+          // reused, instead of recompiling. This could be expensive. We limit it by filtering on the
+          // CHECKSUM property, which is attached only to generated applets and workflows. The maximal
+          // number of replies is (by default) 1000 so we may miss matches when we search. The cost
+          // would be creating a dx:executable again, which is acceptable.
+          logger.trace(s"Querying for executables in project ${project}")
+          val executables = findExecutables(recurse = true)
+            .flatMap {
+              case (obj, desc) =>
+                getChecksum(desc).map(checksum => DxExecutableWithDesc(obj, desc, Some(checksum)))
+            }
+            .groupBy(_.checksum.get)
+          logger.trace(s"Found ${executables.size} executables")
+          executables
+      }
+      case (false, Some(reuseFolder)) => {
+        if (!reuseFolder.startsWith("/")) {
+          throw OptionParseException("ERROR: executableReuseFolder must start with '/'")
         }
-        .groupBy(_.checksum.get)
-      logger.trace(s"Found ${executables.size} executables")
-      executables
-    } else {
-      Map.empty
+        val segments = reuseFolder.iterator().asScala.map(seg => seg.toString()).toSet
+        if (segments.contains("..")) {
+          throw OptionParseException("ERROR: Folder name \"..\" is reserved")
+        }
+        if (segments.contains(".")) {
+          throw OptionParseException("ERROR: Folder name \".\" is reserved")
+        }
+        val (query_folder, recurse) = reuseFolder.toString() match {
+          case s"$base/**" => (base, true)
+          case s"$base/" => (base, false)
+          case _ => (reuseFolder.toString(), false)
+        }
+        logger.trace(s"Querying for executables in ${project} ${query_folder} (recurse=${recurse})")
+          val executables = findExecutables(folder=Some(query_folder), recurse=recurse)
+            .flatMap {
+              case (obj, desc) =>
+                getChecksum(desc).map(checksum => DxExecutableWithDesc(obj, desc, Some(checksum)))
+            }
+            .groupBy(_.checksum.get)
+          logger.trace(s"Found ${executables.size} executables")
+          executables
+      }
+      case (false, None) => {
+        Map.empty
+      }
+
     }
   }
 

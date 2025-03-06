@@ -43,6 +43,7 @@ object Compiler {
   * @param leaveWorkflowsOpen whether to leave generated workflows in the open state
   * @param locked whether to generate locked workflows
   * @param projectWideReuse whether to allow project-wide reuse of applications
+  * @param executableReuseFolder if defined search in this folder for reuse of application
   * @param streamFiles which files to stream vs download
   * @param waitOnUpload whether to wait for each file upload to complete
   * @param useManifests whether to use manifest files for all application inputs and outputs
@@ -61,6 +62,7 @@ case class Compiler(extras: Option[Extras],
                     force: Boolean,
                     leaveWorkflowsOpen: Boolean,
                     projectWideReuse: Boolean,
+                    executableReuseFolder: Option[Path],
                     separateOutputs: Boolean,
                     streamFiles: StreamFiles.StreamFiles,
                     waitOnUpload: Boolean,
@@ -89,7 +91,7 @@ case class Compiler(extras: Option[Extras],
     // directory of the currently existing applets - we don't want to build them
     // if we don't have to.
     private val executableDir =
-      DxExecutableDirectory(bundle, project, folder, projectWideReuse, dxApi, logger)
+      DxExecutableDirectory(bundle, project, folder, projectWideReuse, executableReuseFolder, dxApi, logger)
 
     private def getAssetLink: JsValue = {
       // get billTo and region from the project, then find the runtime asset

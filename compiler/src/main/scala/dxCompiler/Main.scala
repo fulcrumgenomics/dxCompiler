@@ -156,6 +156,7 @@ object Main {
       "imports" -> PathOptionSpec.listMustExist,
       "p" -> PathOptionSpec.listMustExist.copy(alias = Some("imports")),
       "projectWideReuse" -> FlagOptionSpec.default,
+      "executableReuseFolder" -> PathOptionSpec(),
       "reorg" -> FlagOptionSpec.default,
       "runtimeDebugLevel" -> IntOptionSpec.one.copy(choices = Vector(0, 1, 2)),
       "separateOutputs" -> FlagOptionSpec.default,
@@ -355,7 +356,6 @@ object Main {
         )
       }
     }
-
     val defaultScatterChunkSize: Int = options.getValue[Int]("scatterChunkSize") match {
       case None => Constants.JobPerScatterDefault
       case Some(size) =>
@@ -509,6 +509,12 @@ object Main {
           "streamAllFiles",
           "waitOnUpload"
       ).map(options.getFlag(_))
+      val executableReuseFolder = options.getValue[Path]("executableReuseFolder")
+      if (projectWideReuse && executableReuseFolder.isDefined) {
+        throw OptionParseException("ERROR: can not specify both projectWideReuse and executableReuseFolder")
+      }
+
+
       val streamFiles = options.getValue[StreamFiles.StreamFiles]("streamFiles") match {
         case Some(value)            => value
         case None if streamAllFiles => StreamFiles.All
@@ -526,6 +532,7 @@ object Main {
           force,
           leaveWorkflowsOpen,
           projectWideReuse,
+          executableReuseFolder,
           separateOutputs,
           streamFiles,
           waitOnUpload,
@@ -871,6 +878,9 @@ object Main {
         |      -projectWideReuse      Look for existing applets/workflows in the entire project
         |                             before generating new ones. The default search scope is the
         |                             target folder only.
+        |      -executableReuseFolder Look for existing applets/workflows in the specified folder.
+        |                             Incompatible with -projectWideReuse. The default search scope is
+        |                             the target folder only.
         |      -reorg                 Reorganize workflow output files.
         |      -runtimeDebugLevel [0,1,2] 
         |                             How much debug information to write to the job log at runtime.
